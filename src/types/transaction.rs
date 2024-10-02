@@ -1,8 +1,10 @@
 use serde::{Serialize,Deserialize};
 use ring::signature::{Ed25519KeyPair, Signature, UnparsedPublicKey, ED25519};
+use crate::types::hash::{Hashable, H256};
 
 use rand::Rng;
 use bincode;
+
 
 // Define an Address type 
 pub type Address = Vec<u8>;
@@ -21,6 +23,13 @@ pub struct SignedTransaction {
     pub transaction: Transaction,
     pub signature: Vec<u8>,
     pub public_key: Vec<u8>,
+}
+
+impl Hashable for SignedTransaction {
+    fn hash(&self) -> H256 {
+        let serialized_tx = bincode::serialize(self).expect("Serialization should not fail");
+        H256::from(ring::digest::digest(&ring::digest::SHA256, &serialized_tx))
+    }
 }
 
 /// Create digital signature of a transaction
