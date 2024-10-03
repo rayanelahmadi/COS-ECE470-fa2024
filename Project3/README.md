@@ -1,5 +1,9 @@
 # Bitcoin Client Project, Part 3
 
+# ACKNOWLEDGEMENTS
+
+We acknowledge that GPT4o was used to help create the solution for this programming assignment.
+
 In this part of the project, you will implement the **Block** struct and the **Blockchain** struct.
 
 ## Repository management and submission
