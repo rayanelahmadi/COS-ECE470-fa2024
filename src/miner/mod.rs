@@ -266,4 +266,33 @@ fn custom_miner_ten_blocks() {
     println!("Successfully mined 10 blocks in {:?}", elapsed_time);
 }
 
+#[test]
+fn custom_block_validity_check_test() {
+    use std::time::Duration;
+    // Initialize miner with a moderate difficulty
+    let moderate_difficulty = H256::from([0xff; 32]);
+    let (miner_ctx, miner_handle, finished_block_chan) = test_new();
+    miner_ctx.start();
+    miner_handle.start(0); // Lambda set to 0 for continuous mining
+
+    // Mine 5 blocks
+    let mut mined_blocks = Vec::new();
+    for _ in 0..5 {
+        if let Ok(block) = finished_block_chan.recv_timeout(Duration::from_secs(5)) {
+            // Check that the block meets the moderate difficulty requirement
+            assert!(block.hash() <= moderate_difficulty, "Block does not meet difficulty requirement");
+            mined_blocks.push(block);
+        } else {
+            panic!("Failed to mine a block within the expected time");
+        }
+    }
+
+    // Ensure all blocks are linked correctly (parent-child)
+    for i in 1..mined_blocks.len() {
+        assert_eq!(mined_blocks[i - 1].hash(), mined_blocks[i].get_parent(), "Blocks are not correctly linked");
+    }
+
+    println!("Successfully mined and validated {} blocks", mined_blocks.len());
+}
+
 
