@@ -78,6 +78,7 @@ fn main() {
         p2p_workers,
         msg_rx,
         &server,
+        &blockchain // Pass the shared blockchain to the network worker
     );
     worker_ctx.start();
 
@@ -133,3 +134,6 @@ fn main() {
         std::thread::park();
     }
 }
+
+
+

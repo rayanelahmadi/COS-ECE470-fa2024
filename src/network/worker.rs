@@ -2,20 +2,27 @@ use super::message::Message;
 use super::peer;
 use super::server::Handle as ServerHandle;
 use crate::types::hash::H256;
+use crate::blockchain::Blockchain;
+use crate::types::block::Block;
+use crate::types::hash::Hashable;
 
 use log::{debug, warn, error};
+use stderrlog::new;
 
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 #[cfg(any(test,test_utilities))]
 use super::peer::TestReceiver as PeerTestReceiver;
 #[cfg(any(test,test_utilities))]
 use super::server::TestReceiver as ServerTestReceiver;
+
 #[derive(Clone)]
 pub struct Worker {
     msg_chan: smol::channel::Receiver<(Vec<u8>, peer::Handle)>,
     num_worker: usize,
     server: ServerHandle,
+    blockchain: Arc<Mutex<Blockchain>>, // Add blockchain for thread-safe access
 }
 
 
@@ -24,11 +31,13 @@ impl Worker {
         num_worker: usize,
         msg_src: smol::channel::Receiver<(Vec<u8>, peer::Handle)>,
         server: &ServerHandle,
+        blockchain: &Arc<Mutex<Blockchain>>,
     ) -> Self {
         Self {
             msg_chan: msg_src,
             num_worker,
             server: server.clone(),
+            blockchain: Arc::clone(blockchain),
         }
     }
 
@@ -61,7 +70,54 @@ impl Worker {
                 Message::Pong(nonce) => {
                     debug!("Pong: {}", nonce);
                 }
-                _ => unimplemented!(),
+
+                Message::NewBlockHashes(hashes) => {
+
+                    let blockchain = self.blockchain.lock().unwrap();
+
+                    // Request blocks we don't already have in blockchain
+                    // Filter out hashes that are not already in the blockchain (check all blocks)
+                    let missing_hashes: Vec<H256> = hashes
+                        .into_iter()
+                        .filter(|hash| !blockchain.blocks.contains_key(hash))
+                        .collect();
+
+                    if !missing_hashes.is_empty() {
+                        peer.write(Message::GetBlocks(missing_hashes));
+                    }
+                }
+
+                Message::GetBlocks(hashes) => {
+                    let blockchain = self.blockchain.lock().unwrap();
+                    let blocks_to_send: Vec<_> = hashes
+                        .into_iter()
+                        .filter_map(|hash| blockchain.blocks.get(&hash).cloned())
+                        .collect();
+
+                    if !blocks_to_send.is_empty() {
+                        peer.write(Message::Blocks(blocks_to_send));
+                    }
+                }
+
+                Message::Blocks(blocks) => {
+                    let mut blockchain = self.blockchain.lock().unwrap();
+                    let mut new_block_hashes = Vec::new();
+
+                    for block in blocks {
+                        let block_hash = block.hash();
+                        //debug!("Received new block with hash: {:?}", block_hash);
+
+                        if !blockchain.blocks.contains_key(&block_hash) {
+                            blockchain.insert(&block);
+                            new_block_hashes.push(block_hash);
+                        }
+                    }
+
+                    if !new_block_hashes.is_empty() {
+                        self.server.broadcast(Message::NewBlockHashes(new_block_hashes));
+                    }
+                }
+                _=> unimplemented!(),
             }
         }
     }
@@ -90,9 +146,14 @@ impl TestMsgSender {
 fn generate_test_worker_and_start() -> (TestMsgSender, ServerTestReceiver, Vec<H256>) {
     let (server, server_receiver) = ServerHandle::new_for_test();
     let (test_msg_sender, msg_chan) = TestMsgSender::new();
-    let worker = Worker::new(1, msg_chan, &server);
+
+    let blockchain = Arc::new(Mutex::new(Blockchain::new()));
+    let worker = Worker::new(1, msg_chan, &server, &blockchain);
     worker.start(); 
-    (test_msg_sender, server_receiver, vec![])
+
+    let chain_hashes = blockchain.lock().unwrap().all_blocks_in_longest_chain();
+
+    (test_msg_sender, server_receiver, chain_hashes)
 }
 
 // DO NOT CHANGE THIS COMMENT, IT IS FOR AUTOGRADER. BEFORE TEST
@@ -146,6 +207,9 @@ mod test {
             panic!();
         }
     }
+
+
+
 }
 
 // DO NOT CHANGE THIS COMMENT, IT IS FOR AUTOGRADER. AFTER TEST

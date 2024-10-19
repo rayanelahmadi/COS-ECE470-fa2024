@@ -6,6 +6,7 @@ use std::thread;
 use std::sync::{Arc, Mutex};
 use crate::blockchain::Blockchain;
 use crate::types::hash::Hashable;
+use crate::network::message::Message;
 
 #[derive(Clone)]
 pub struct Worker {
@@ -47,6 +48,12 @@ impl Worker {
             }
 
             info!("Block inserted into blockchain with hash: {:?}", block.hash());
+
+            // Broadcast the newly mined block's hash to the network
+            let new_block_hash = block.hash();
+            self.server.broadcast(Message::NewBlockHashes(vec![new_block_hash]));
+
+            info!("Broadcasted new block hash: {:?}", new_block_hash);
         }
     }
 }

@@ -5,7 +5,7 @@ use crate::types::block::{Header, Content};
 use crate::types::hash::Hashable;
 use crate::types::transaction::SignedTransaction;
 pub struct Blockchain {
-    blocks: HashMap<H256, Block>, // Store blocks by their hash
+    pub blocks: HashMap<H256, Block>, // Store blocks by their hash
     heights: HashMap<H256, usize>, // Store heights of each block
     tip: H256, // Keep track of the last block's hash (tip of longest chain)
 }
