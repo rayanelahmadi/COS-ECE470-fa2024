@@ -2,6 +2,9 @@
 
 In this part, you will implement the **network** module of the Bitcoin client. The network module is in charge of communicating with other nodes/clients. It forms the peer-to-peer (p2p) network and uses a gossip protocol to exchange data, including blocks and transactions. (Transactions will not be covered in this part.)
 
+# GPT-4o was utilized to help in developing the solution
+
+
 ## Repository management and submission
 
 1. Similar to the previous assignments, use GitHub and download zip file. Rename it to your netids as `netid1_netid2_netid3.zip`. Upload the zip file on canvas.
