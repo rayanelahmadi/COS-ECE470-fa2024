@@ -2,6 +2,9 @@
 
 In this part of the project, we will combine the last 3 weeks' work to make a functioning data blockchain. Most of this week's work will combine mining, network, and blockchain modules. You must add PoW validation and a block buffer to handle orphan blocks.
 
+# GPT-4o was utilized to help in developing the solution
+
+
 ## Repository management and submission
 
 1. Like the previous assignments, use GitHub and download the zip file. Rename it to your netids as `netid1_netid2_netid3.zip`. Upload the zip file on canvas.

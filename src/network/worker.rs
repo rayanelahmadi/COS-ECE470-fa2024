@@ -5,6 +5,7 @@ use crate::types::hash::H256;
 use crate::blockchain::Blockchain;
 use crate::types::block::Block;
 use crate::types::hash::Hashable;
+use std::collections::HashMap;
 
 use log::{debug, warn, error};
 use stderrlog::new;
@@ -23,6 +24,7 @@ pub struct Worker {
     num_worker: usize,
     server: ServerHandle,
     blockchain: Arc<Mutex<Blockchain>>, // Add blockchain for thread-safe access
+    orphan_buffer: Arc<Mutex<HashMap<H256, Vec<Block>>>>, // Orphan buffer to handle blocks with missing parents
 }
 
 
@@ -38,6 +40,7 @@ impl Worker {
             num_worker,
             server: server.clone(),
             blockchain: Arc::clone(blockchain),
+            orphan_buffer: Arc::new(Mutex::new(HashMap::new())), // Initialize orphan buffer
         }
     }
 
@@ -82,6 +85,8 @@ impl Worker {
                         .filter(|hash| !blockchain.blocks.contains_key(hash))
                         .collect();
 
+                    drop (blockchain);
+
                     if !missing_hashes.is_empty() {
                         peer.write(Message::GetBlocks(missing_hashes));
                     }
@@ -93,6 +98,7 @@ impl Worker {
                         .into_iter()
                         .filter_map(|hash| blockchain.blocks.get(&hash).cloned())
                         .collect();
+                    drop(blockchain);
 
                     if !blocks_to_send.is_empty() {
                         peer.write(Message::Blocks(blocks_to_send));
@@ -107,18 +113,89 @@ impl Worker {
                         let block_hash = block.hash();
                         //debug!("Received new block with hash: {:?}", block_hash);
 
+                        // Check PoW Validity
+                        if block_hash > block.header.difficulty {
+                            debug!("Block with hash {:?} failed PoW check", block_hash);
+                            continue;
+                        }
+
+                        // Check if parent exists in blockchain 
+                        let parent_hash = block.header.parent;
+                        if !blockchain.blocks.contains_key(&parent_hash) {
+                            debug!("Parent block missing for block {:?}", block_hash);
+
+                            // Add block to orphan buffer
+                            self.orphan_buffer.lock().unwrap().entry(parent_hash)
+                                .or_insert_with(Vec::new)
+                                .push(block.clone());
+
+                            // Request the missing parent
+                            peer.write(Message::GetBlocks(vec![parent_hash]));
+                            continue;
+                        }
+
+                        // Difficulty check with parent block
+                        let parent_block = blockchain.blocks.get(&parent_hash).unwrap();
+                        if block.header.difficulty != parent_block.header.difficulty {
+                            debug!("Block with hash {:?} has incorrect difficulty", block_hash);
+                            continue;
+                        }
+
+                        // Insert block and add to broadcast if new
                         if !blockchain.blocks.contains_key(&block_hash) {
                             blockchain.insert(&block);
                             new_block_hashes.push(block_hash);
                         }
                     }
 
+                    drop(blockchain);
+
                     if !new_block_hashes.is_empty() {
                         self.server.broadcast(Message::NewBlockHashes(new_block_hashes));
                     }
+
+                    // Process any orphans that may now have their parent
+                    self.process_orphans();
                 }
                 _=> unimplemented!(),
             }
+        }
+    }
+
+    fn process_orphans(&self) {
+        let mut processed_any = true;
+        while processed_any {
+            processed_any = false;
+            let mut orphan_buffer = self.orphan_buffer.lock().unwrap();
+            let mut blockchain = self.blockchain.lock().unwrap();
+            let mut new_block_hashes = Vec::new();
+
+            // Process any orphans whose parents now exist in the blockchain
+            for (parent_hash, orphans) in orphan_buffer.clone().iter() {
+                if blockchain.blocks.contains_key(parent_hash) {
+                    for orphan in orphans {
+                        let orphan_hash = orphan.hash();
+                        blockchain.insert(orphan);
+                        new_block_hashes.push(orphan_hash);
+                        processed_any = true;
+
+                    }
+
+                    // Remove processed orphans from buffer
+                    orphan_buffer.remove(parent_hash);
+
+                }
+            }
+
+            drop(blockchain);
+            drop(orphan_buffer);
+
+            // Broadcast newly processed orphan blocks
+            if !new_block_hashes.is_empty() {
+                self.server.broadcast(Message::NewBlockHashes(new_block_hashes));
+            }
+
+            
         }
     }
 }

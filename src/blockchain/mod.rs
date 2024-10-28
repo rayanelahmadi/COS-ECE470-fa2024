@@ -19,7 +19,8 @@ impl Blockchain {
             header: Header {
                 parent: H256::from([0x00; 32]),
                 nonce: 0,
-                difficulty: H256::from([0xff; 32]),
+                //difficulty: H256::from([0x0f; 32]), //[0xff; 32]
+                difficulty: hex_literal::hex!("00001fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").into(),
                 timestamp: 0,
                 merkle_root: H256::from([0x00; 32]),
             },

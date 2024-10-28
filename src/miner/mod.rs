@@ -162,7 +162,8 @@ impl Context {
                     .expect("Time went backwards")
                     .as_millis();
 
-                let difficulty = H256::from([0xff; 32]);
+                //let difficulty = H256::from([0x0f; 32]);
+                let difficulty = hex_literal::hex!("00001fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").into();
 
                 let block = Block {
                     header: Header {
