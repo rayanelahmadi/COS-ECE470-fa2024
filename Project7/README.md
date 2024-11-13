@@ -2,6 +2,9 @@
 
 This part of the project will deal with including transactions in the codebase. Integrate the transaction structure inside the block content, add network functionality to transaction propagation, and add a transaction mempool to be used by the miner to include transaction content in the block being mined.
 
+# GPT-4o was utilized to help in developing the solution
+
+
 ## Repository management and submission
 
 1. Like the previous assignments, use GitHub and download the zip file. Rename it to your netids as `netid1_netid2_netid3.zip`. Upload the zip file on canvas.

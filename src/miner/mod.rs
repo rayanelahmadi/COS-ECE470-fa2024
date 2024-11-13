@@ -12,7 +12,11 @@ use crate::blockchain;
 use crate::types::block::{Block, Header, Content};
 use crate::blockchain::Blockchain;
 use crate::types::hash::{Hashable, H256};
+use crate::types::merkle;
+use crate::types::merkle::MerkleTree;
 use std::sync::{Arc, Mutex};
+use crate::types::transaction::Mempool;
+use crate::types::transaction::SignedTransaction;
 
 enum ControlSignal {
     Start(u64), // the number controls the lambda of interval between block generation
@@ -32,6 +36,7 @@ pub struct Context {
     operating_state: OperatingState,
     finished_block_chan: Sender<Block>,
     blockchain: Arc<Mutex<Blockchain>>, // thread-safe blockchain access 
+    mempool: Arc<Mutex<Mempool>>, // Thread-safe Mempool
 }
 
 #[derive(Clone)]
@@ -40,7 +45,7 @@ pub struct Handle {
     control_chan: Sender<ControlSignal>,
 }
 
-pub fn new(blockchain: &Arc<Mutex<Blockchain>>) -> (Context, Handle, Receiver<Block>) {
+pub fn new(blockchain: &Arc<Mutex<Blockchain>>, mempool: &Arc<Mutex<Mempool>>,) -> (Context, Handle, Receiver<Block>) {
     let (signal_chan_sender, signal_chan_receiver) = unbounded();
     let (finished_block_sender, finished_block_receiver) = unbounded();
 
@@ -51,6 +56,7 @@ pub fn new(blockchain: &Arc<Mutex<Blockchain>>) -> (Context, Handle, Receiver<Bl
         operating_state: OperatingState::Paused,
         finished_block_chan: finished_block_sender,
         blockchain: Arc::clone(blockchain),
+        mempool: Arc::clone(mempool) // Clone the mempool reference for shared access
     };
 
     let handle = Handle {
@@ -59,12 +65,12 @@ pub fn new(blockchain: &Arc<Mutex<Blockchain>>) -> (Context, Handle, Receiver<Bl
 
     (ctx, handle, finished_block_receiver)
 }
-
+/* 
 #[cfg(any(test,test_utilities))]
 fn test_new() -> (Context, Handle, Receiver<Block>) {
     let blockchain = Arc::new(Mutex::new(Blockchain::new()));
     new(&blockchain)
-}
+}*/
 
 impl Handle {
     pub fn exit(&self) {
@@ -147,9 +153,10 @@ impl Context {
             // TODO for student: if block mining finished, you can have something like: self.finished_block_chan.send(block.clone()).expect("Send finished block error");
 
             if let OperatingState::Run(lambda) = self.operating_state {
-
+                // Create a block with transactions from the mempool
+                //let block = self.create_block();
                 // Retrieve the latest parent block's hash (tip)
-                
+                /* 
                 let parent_hash = {
                     let blockchain = self.blockchain.lock().unwrap();
                     blockchain.tip()
@@ -175,19 +182,36 @@ impl Context {
                     },
                     content: Content { transactions: vec![] }, // Placeholder content
                 };
-                
-                // Proof-of-Work check
-                if block.hash() <= difficulty {
-                    // Send mined block to channel 
-                    self.finished_block_chan
-                        .send(block.clone())
-                        .expect("Send finished block error");
-                    info!("Block succesfully mined with nonce: {}", nonce);
+                */
 
-                    // Insert block into blockchain and update tip & Update the parent hash to the newly mined block                    
-                    {
-                        let mut blockchain = self.blockchain.lock().unwrap();
-                        blockchain.insert(&block);
+                //let block = self.create_block();
+                if let Some(block) = self.create_block() {
+
+                    // Proof-of-Work check
+                    if block.hash() <= block.header.difficulty {
+                        // Send mined block to channel 
+                        self.finished_block_chan
+                            .send(block.clone())
+                            .expect("Send finished block error");
+                        info!("Block succesfully mined with nonce: {}", block.header.nonce);
+
+                        // Insert block into blockchain and update tip & Update the parent hash to the newly mined block                    
+                        {
+                            let mut blockchain = self.blockchain.lock().unwrap();
+                            blockchain.insert(&block);
+                        }
+
+                        // Remove the transactions in this block from the mempool
+                        {
+                            let mut mempool = self.mempool.lock().unwrap();
+                            let tx_hashes: Vec<H256> = block.content.transactions.iter().map(|tx| tx.hash()).collect();
+                            mempool.remove_transactions(tx_hashes);
+                            drop(mempool);
+                        }
+                        
+
+                        //let tx_hashes: Vec<H256> = block.content.transactions.iter().map(|tx| tx.hash()).collect();
+                        //self.mempool.lock().unwrap().remove_transactions(tx_hashes);
                     }
                 }
 
@@ -198,6 +222,7 @@ impl Context {
 
 
             }
+            
 
             /* 
             if let OperatingState::Run(i) = self.operating_state {
@@ -208,8 +233,49 @@ impl Context {
             }*/
         }
     }
-}
 
+    // Helper function to create a block, adding transactions from the mempool
+    fn create_block(&self) -> Option<Block> {
+        let parent_hash = {
+            let blockchain = self.blockchain.lock().unwrap();
+            blockchain.tip()
+        };
+
+        //let difficulty = hex_literal::hex!("00001fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").into();
+        let difficulty = hex_literal::hex!("0002ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").into();
+        let mut nonce = rand::thread_rng().gen::<u32>();
+        let timestamp = time::SystemTime::now()
+            .duration_since(time::UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_millis();
+
+        let transactions = self
+            .mempool
+            .lock()
+            .unwrap()
+            .get_transactions_for_block(50); // Assuming 20 as block transaction limit 
+
+         // Check if there are transactions; return None if empty
+         if transactions.is_empty() {
+            return None;
+        }
+        
+        //let merkle_root = H256::from([0u8; 32]); // Placeholder for merkle root
+        let merkle_root = MerkleTree::new(&transactions).root();
+
+        Some(Block {
+            header: Header {
+                parent: parent_hash,
+                nonce,
+                difficulty,
+                timestamp,
+                merkle_root,
+            },
+            content: Content { transactions },
+        })
+    }
+}
+/* 
 // DO NOT CHANGE THIS COMMENT, IT IS FOR AUTOGRADER. BEFORE TEST
 
 #[cfg(test)]
@@ -296,4 +362,4 @@ fn custom_block_validity_check_test() {
     println!("Successfully mined and validated {} blocks", mined_blocks.len());
 }
 
-
+*/

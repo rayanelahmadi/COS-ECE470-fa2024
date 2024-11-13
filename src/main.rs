@@ -19,6 +19,7 @@ use std::process;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time;
+use types::transaction::Mempool;
 
 fn main() {
     // parse command line arguments
@@ -38,6 +39,11 @@ fn main() {
     stderrlog::new().verbosity(verbosity).init().unwrap();
     let blockchain = Blockchain::new();
     let blockchain = Arc::new(Mutex::new(blockchain));
+
+    //Initialize the Mempool
+    let mempool = Mempool::new(1000); // Set max transactions in mempool as needed
+    let mempool = Arc::new(Mutex::new(mempool));
+
     // parse p2p server address
     let p2p_addr = matches
         .value_of("peer_addr")
@@ -78,15 +84,20 @@ fn main() {
         p2p_workers,
         msg_rx,
         &server,
-        &blockchain // Pass the shared blockchain to the network worker
+        &blockchain, // Pass the shared blockchain to the network worker
+        &mempool, // Pass the shared mempool to the network server
     );
     worker_ctx.start();
 
     // start the miner
-    let (miner_ctx, miner, finished_block_chan) = miner::new(&blockchain);
-    let miner_worker_ctx = miner::worker::Worker::new(&server, finished_block_chan, &blockchain);
+    let (miner_ctx, miner, finished_block_chan) = miner::new(&blockchain, &mempool);
+    let miner_worker_ctx = miner::worker::Worker::new(&server, finished_block_chan, &blockchain, &mempool, 10); // Assuming 10 as max transactions per block
     miner_ctx.start();
     miner_worker_ctx.start();
+
+    // Initialize the transaction generator with mempool and start it
+    let transaction_generator = generator::generator::TransactionGenerator::new(mempool.clone(), server.clone());
+    //transaction_generator.clone().start(100); // Example 'theta' value; adjust as needed 
 
     // connect to known peers
     if let Some(known_peers) = matches.values_of("known_peer") {
@@ -122,12 +133,16 @@ fn main() {
     }
 
 
+    // start the transaction generator
+    //let transaction_generator = generator::generator::TransactionGenerator::new(Arc::clone(&mempool), server.clone());
+
     // start the API server
     ApiServer::start(
         api_addr,
         &miner,
         &server,
         &blockchain,
+        &transaction_generator, // Pass the transaction generator
     );
 
     loop {

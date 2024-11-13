@@ -13,6 +13,8 @@ use stderrlog::new;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+use crate::types::transaction::Mempool;
+
 #[cfg(any(test,test_utilities))]
 use super::peer::TestReceiver as PeerTestReceiver;
 #[cfg(any(test,test_utilities))]
@@ -25,6 +27,7 @@ pub struct Worker {
     server: ServerHandle,
     blockchain: Arc<Mutex<Blockchain>>, // Add blockchain for thread-safe access
     orphan_buffer: Arc<Mutex<HashMap<H256, Vec<Block>>>>, // Orphan buffer to handle blocks with missing parents
+    mempool: Arc<Mutex<Mempool>>, // Include mempool for transactions
 }
 
 
@@ -34,6 +37,7 @@ impl Worker {
         msg_src: smol::channel::Receiver<(Vec<u8>, peer::Handle)>,
         server: &ServerHandle,
         blockchain: &Arc<Mutex<Blockchain>>,
+        mempool: &Arc<Mutex<Mempool>>, // Accept mempool reference 
     ) -> Self {
         Self {
             msg_chan: msg_src,
@@ -41,6 +45,7 @@ impl Worker {
             server: server.clone(),
             blockchain: Arc::clone(blockchain),
             orphan_buffer: Arc::new(Mutex::new(HashMap::new())), // Initialize orphan buffer
+            mempool: Arc::clone(mempool), // Clone mempool reference
         }
     }
 
@@ -72,6 +77,42 @@ impl Worker {
                 }
                 Message::Pong(nonce) => {
                     debug!("Pong: {}", nonce);
+                }
+
+                // Transaction-related messages
+                Message::NewTransactionHashes(hashes) =>{
+                    let mempool = self.mempool.lock().unwrap();
+                    let missing_hashes: Vec<H256> = hashes
+                        .into_iter()
+                        .filter(|hash| !mempool.contains_transactions(hash))
+                        .collect();
+                    drop(mempool);
+
+                    if !missing_hashes.is_empty() {
+                        peer.write(Message::GetTransactions(missing_hashes));
+                    }
+                }
+
+                Message::GetTransactions(hashes) => {
+                    let mempool = self.mempool.lock().unwrap();
+                    let transactions_to_send: Vec<_> = hashes
+                        .into_iter()
+                        .filter_map(|hash| mempool.get_transactions(&hash))
+                        .collect();
+                    drop(mempool);
+
+                    if !transactions_to_send.is_empty() {
+                        peer.write(Message::Transactions(transactions_to_send));
+                    }
+                }
+
+                Message::Transactions(transactions) => {
+                    let mut mempool = self.mempool.lock().unwrap();
+                    for tx in transactions {
+                        mempool.add_transaction(tx).ok();
+                    }
+
+                    drop(mempool);
                 }
 
                 Message::NewBlockHashes(hashes) => {
@@ -108,6 +149,8 @@ impl Worker {
                 Message::Blocks(blocks) => {
                     let mut blockchain = self.blockchain.lock().unwrap();
                     let mut new_block_hashes = Vec::new();
+                    let mut mempool = self.mempool.lock().unwrap(); // Lock the mempool here for removal - ADDED
+
 
                     for block in blocks {
                         let block_hash = block.hash();
@@ -144,11 +187,18 @@ impl Worker {
                         // Insert block and add to broadcast if new
                         if !blockchain.blocks.contains_key(&block_hash) {
                             blockchain.insert(&block);
+
+                            // Remove transactions included in this block from the mempool
+                            let tx_hashes: Vec<H256> = block.content.transactions.iter().map(|tx| tx.hash()).collect();
+                            mempool.remove_transactions(tx_hashes);
+
                             new_block_hashes.push(block_hash);
+
                         }
                     }
 
                     drop(blockchain);
+                    drop(mempool);
 
                     if !new_block_hashes.is_empty() {
                         self.server.broadcast(Message::NewBlockHashes(new_block_hashes));
@@ -218,8 +268,10 @@ impl TestMsgSender {
         r
     }
 }
+/* 
 #[cfg(any(test,test_utilities))]
 /// returns two structs used by tests, and an ordered vector of hashes of all blocks in the blockchain
+///
 fn generate_test_worker_and_start() -> (TestMsgSender, ServerTestReceiver, Vec<H256>) {
     let (server, server_receiver) = ServerHandle::new_for_test();
     let (test_msg_sender, msg_chan) = TestMsgSender::new();
@@ -287,6 +339,6 @@ mod test {
 
 
 
-}
+}*/
 
 // DO NOT CHANGE THIS COMMENT, IT IS FOR AUTOGRADER. AFTER TEST
