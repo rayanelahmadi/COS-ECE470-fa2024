@@ -44,7 +44,6 @@ impl TransactionGenerator {
     fn generate_transactions(&self, theta: u64) {
         let mut nonce = 0;
         loop {
-            //info!("NONCE: {}", nonce);
             //unimplemented!();
             if let Some(transaction) = self.create_valid_transaction(nonce) {
                 nonce += 1;
@@ -59,11 +58,6 @@ impl TransactionGenerator {
                     }
 
                     self.server.broadcast(Message::NewTransactionHashes(vec![tx_hash]));
-                    /*info!(
-                        "Generated, added to mempool, and broadcasted new transaction with hash: {:?}", 
-                        tx_hash
-                    );*/
-                    
                     drop(mempool);
                 }
 
@@ -85,15 +79,13 @@ impl TransactionGenerator {
         let sender_address = Address::from_public_key_bytes(self.key_pair.public_key().as_ref());
 
         let mut rng = rand::thread_rng();
-        //info!("Sender Addy: {}", sender_address);
+        
 
         // Generate random receiver and transfer amount
 
         let receiver = self.generate_random_address();
         let value = rng.gen_range(1..10); // Small amount between 1 and 10
 
-        //info!("Receiver Addy: {}", receiver);
-        //info!("Amount Going to Receiver: {}", value);
 
 
         // Create transaction

@@ -33,16 +33,6 @@ impl State {
         let sender = tx.sender_address();
 
         if let Some((nonce, balance)) = self.accounts.get(&sender) {
-            // Check nonce matches and balance is sufficient
-            //info!("BALANCE: {}", *balance);
-            //info!("VALUE: {}", tx.transaction.value);
-            /* 
-            if (*nonce + 1 != tx.transaction.nonce || *balance < tx.transaction.value) {
-                info!("{}", *nonce+1);
-                info!("{}", tx.transaction.nonce);
-                info!("{}", balance);
-            }*/
-            //info!("{}, {}", *nonce+1, tx.transaction.nonce);
             *nonce + 1 == tx.transaction.nonce && *balance >= tx.transaction.value 
         } else {
             false // Sender account not found or insufficent balance
@@ -59,7 +49,6 @@ impl State {
         if let Some((nonce, balance)) = self.accounts.get_mut(&sender) {
             *nonce += 1; // Increment nonce
             *balance -= tx.transaction.value; // Deduct value
-            //info!("After Apply: Sender Nonce {}", nonce);
         }
 
         // Update or create receiver account

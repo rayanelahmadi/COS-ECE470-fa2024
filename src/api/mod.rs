@@ -26,7 +26,6 @@ pub struct Server {
     network: NetworkServerHandle,
     blockchain: Arc<Mutex<Blockchain>>,
     transaction_generator: TransactionGenerator, // Add transaction generator
-    //state_map: Arc<Mutex<HashMap<H256, Arc<Mutex<State>>>>>,
 }
 
 #[derive(Serialize)]
@@ -63,7 +62,6 @@ impl Server {
         network: &NetworkServerHandle,
         blockchain: &Arc<Mutex<Blockchain>>,
         transaction_generator: &TransactionGenerator, // Pass transaction generator here 
-        //state_map: &Arc<Mutex<HashMap<H256, Arc<Mutex<State>>>>>,
     ) {
         let handle = HTTPServer::http(&addr).unwrap();
         let server = Self {
@@ -72,8 +70,6 @@ impl Server {
             network: network.clone(),
             blockchain: Arc::clone(blockchain),
             transaction_generator: transaction_generator.clone(), // Clone transaction generator 
-            //state_map: Arc::clone(state_map),
-            //state_map: blockchain.lock().unwrap().get_states(),
         };
         thread::spawn(move || {
             for req in server.handle.incoming_requests() {
@@ -81,7 +77,6 @@ impl Server {
                 let network = server.network.clone();
                 let blockchain = Arc::clone(&server.blockchain);
                 let transaction_generator = server.transaction_generator.clone();
-                //let state_map = Arc::clone(&server.state_map);
                 thread::spawn(move || {
                     // a valid url requires a base
                     let base_url = Url::parse(&format!("http://{}/", &addr)).unwrap();
@@ -223,7 +218,6 @@ impl Server {
                             let block_hash = longest_chain[block_index];
 
                             let state_map = blockchain.states.clone();
-                            //drop(blockchain);
 
                             if let Some(state) = state_map.get(&block_hash) {
                                 let state = state.lock().unwrap();
@@ -241,7 +235,6 @@ impl Server {
                                     format!("State not found for block: {}", block_hash)
                                 );
                             }
-                            //drop(state_map);
                             drop(blockchain);
                         }
                         _ => {

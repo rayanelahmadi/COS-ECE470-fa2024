@@ -132,7 +132,6 @@ impl Mempool {
     pub fn remove_transactions(&mut self, tx_hashes: Vec<H256>) {
         for hash in tx_hashes {
             self.pool.remove(&hash);
-            //info!("Mempool Size: {}", self.pool.len());
         }
 
     }

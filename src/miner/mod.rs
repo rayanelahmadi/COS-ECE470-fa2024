@@ -158,7 +158,6 @@ impl Context {
                 if let Some(block) = self.create_block() {
 
                     // Proof-of-Work check
-                    //info!("ARRIVING");
                     if block.hash() <= block.header.difficulty {
                         // Send mined block to channel 
                         self.finished_block_chan
@@ -166,29 +165,8 @@ impl Context {
                             .expect("Send finished block error");
                         info!("Block succesfully mined with nonce: {}", block.header.nonce);
 
-                        // Insert block into blockchain and update tip & Update the parent hash to the newly mined block                    
-                        {
-                            //let mut blockchain = self.blockchain.lock().unwrap(); //- UNCOMMENT MAYBE
-                            //blockchain.insert(&block); //- UNCOMMENT MAYBE
-                            //info!("IN MINER")
-                        }
-
-                        // Remove the transactions in this block from the mempool
-                        /* 
-                        {
-                            let mut mempool = self.mempool.lock().unwrap();
-                            let tx_hashes: Vec<H256> = block.content.transactions.iter().map(|tx| tx.hash()).collect();
-                            mempool.remove_transactions(tx_hashes);
-                            drop(mempool);
-                            for tx in block.content.transactions {
-                                info!("Noce Removed: {}", tx.transaction.nonce);
-                            }
-                        }*/
                     }
                     
-                }
-                else {
-                    //info!("IN ELSE STATEMENT");
                 }
 
                 if lambda != 0 {

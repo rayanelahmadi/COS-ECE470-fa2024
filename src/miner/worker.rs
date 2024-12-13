@@ -54,7 +54,6 @@ impl Worker {
                 let mut blockchain = self.blockchain.lock().unwrap();
                 blockchain.insert(&block);
                 drop(blockchain);
-                //info!("IN WORKER");
             }
 
             info!("Block inserted into blockchain with hash: {:?}", block.hash());
@@ -70,10 +69,6 @@ impl Worker {
             let tx_hashes: Vec<_> = block.content.transactions.iter().map(|tx| tx.hash()).collect();
             mempool.remove_transactions(tx_hashes);
             drop(mempool);
-            /* 
-            for tx in block.content.transactions {
-                info!("Noce Removed: {}", tx.transaction.nonce);
-            }*/
             }
     }
     /* 
