@@ -2,6 +2,9 @@
 
 This is the last part of the project, and you will finish the Bitcoin client. You need to maintain a state for the ledger that the blockchain creates and add all the necessary checks related to it. 
 
+# GPT-4o was utilized to help in developing the solution
+
+
 ## Repository management and submission
 
 1. Like the previous assignments, use GitHub and download the zip file. Rename it to your netid as `netid1_netid2_netid3.zip`. Upload the zip file on canvas.
