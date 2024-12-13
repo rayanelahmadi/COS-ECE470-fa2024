@@ -11,15 +11,21 @@ pub mod generator;
 
 use blockchain::Blockchain;
 use clap::clap_app;
+use ring::signature::Ed25519KeyPair;
+use ring::signature::KeyPair;
 use smol::channel;
 use log::{error, info};
 use api::Server as ApiServer;
+use types::key_pair;
+use types::state::State;
+use std::collections::HashMap;
 use std::net;
 use std::process;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time;
 use types::transaction::Mempool;
+use ring::digest;
 
 fn main() {
     // parse command line arguments
@@ -37,12 +43,7 @@ fn main() {
     // init logger
     let verbosity = matches.occurrences_of("verbose") as usize;
     stderrlog::new().verbosity(verbosity).init().unwrap();
-    let blockchain = Blockchain::new();
-    let blockchain = Arc::new(Mutex::new(blockchain));
-
-    //Initialize the Mempool
-    let mempool = Mempool::new(1000); // Set max transactions in mempool as needed
-    let mempool = Arc::new(Mutex::new(mempool));
+    
 
     // parse p2p server address
     let p2p_addr = matches
@@ -53,6 +54,27 @@ fn main() {
             error!("Error parsing P2P server address: {}", e);
             process::exit(1);
         });
+
+    // Generate deterministic seed for key pair based on p2p_addr
+    let mut seed = {
+        let hash = digest::digest(&digest::SHA256, p2p_addr.to_string().as_bytes());
+        let mut seed = [0u8; 32];
+        seed.copy_from_slice(&hash.as_ref()[..32]);
+        seed
+    };
+
+    seed = [0; 32]; // Simplifies process - Checked with Zerui
+
+    let key_pair = Arc::new(Ed25519KeyPair::from_seed_unchecked(&seed).unwrap());
+    //info!("Key pair for node {}: {:?}", p2p_addr, key_pair.public_key().as_ref());
+
+    // Initialize the blockchain and state
+    let blockchain = Blockchain::new(&seed);
+    let blockchain = Arc::new(Mutex::new(blockchain));
+
+    // Initialize the mempool
+    let mempool = Mempool::new(1000); // Set max transactions
+    let mempool = Arc::new(Mutex::new(mempool));
 
     // parse api server address
     let api_addr = matches
@@ -96,8 +118,7 @@ fn main() {
     miner_worker_ctx.start();
 
     // Initialize the transaction generator with mempool and start it
-    let transaction_generator = generator::generator::TransactionGenerator::new(mempool.clone(), server.clone());
-    //transaction_generator.clone().start(100); // Example 'theta' value; adjust as needed 
+    let transaction_generator = generator::generator::TransactionGenerator::new(mempool.clone(), server.clone(), key_pair.clone(),);
 
     // connect to known peers
     if let Some(known_peers) = matches.values_of("known_peer") {
@@ -132,9 +153,6 @@ fn main() {
         });
     }
 
-
-    // start the transaction generator
-    //let transaction_generator = generator::generator::TransactionGenerator::new(Arc::clone(&mempool), server.clone());
 
     // start the API server
     ApiServer::start(

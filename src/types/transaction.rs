@@ -8,10 +8,8 @@ use bincode;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use log::info;
 
-
-// Define an Address type 
-// pub type Address = Vec<u8>;
 
 // Define Transaction struct with sender, receiver, value fields
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
@@ -19,7 +17,7 @@ pub struct Transaction {
     //pub sender: Address,
     pub receiver: Address,
     pub value: u64,
-    pub account_nonce: u64,
+    pub nonce: u64, // Used in state.rs
 }
 
 // Define SignedTransaction struct with transaction, signature, public_key fields
@@ -72,8 +70,6 @@ pub fn verify(t: &Transaction, public_key: &[u8], signature: &[u8]) -> bool {
 
 // Custom Helper Method
 fn generate_random_address() -> Address {
-    //let mut rng = rand::thread_rng();
-    //(0..32).map(|_| rng.gen()).collect()
 
     let mut rng = rand::thread_rng();
     let random_bytes: Vec<u8> = (0..32).map(|_| rng.gen()).collect(); // 32 random bytes
@@ -90,7 +86,7 @@ pub fn generate_random_transaction() -> Transaction {
         //sender: generate_random_address(),
         receiver: generate_random_address(),
         value: rand::thread_rng().gen_range(1..1000), 
-        account_nonce: rand::thread_rng().gen_range(1..1000),
+        nonce: rand::thread_rng().gen_range(1..1000),
     }
 }
 
@@ -136,6 +132,7 @@ impl Mempool {
     pub fn remove_transactions(&mut self, tx_hashes: Vec<H256>) {
         for hash in tx_hashes {
             self.pool.remove(&hash);
+            //info!("Mempool Size: {}", self.pool.len());
         }
 
     }
@@ -151,6 +148,20 @@ impl Mempool {
 
     pub fn get_transactions(&self, tx_hash: &H256) -> Option<SignedTransaction> {
         self.pool.get(tx_hash).cloned()
+    }
+
+    pub fn get_all_transactions(&self) -> Vec<SignedTransaction> {
+        self.pool.values().cloned().collect()
+    }
+
+    pub fn update_with_state(&mut self, state: &crate::types::state::State) {
+        let invalid_tx_hashes: Vec<H256> = self
+            .pool
+            .values()
+            .filter(|tx|!state.is_valid_transaction(tx))
+            .map(|tx|tx.hash())
+            .collect();
+        self.remove_transactions(invalid_tx_hashes);
     }
     
 }

@@ -5,10 +5,12 @@ use crate::network::server::Handle as NetworkServerHandle;
 use crate::network::message::Message;
 use crate::generator::generator::TransactionGenerator;
 use crate::types::hash::{Hashable, H256};
-
+use crate::types::state::State;
+//use crate::blockchain::Blockchain;
 
 use log::info;
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use tiny_http::Header;
@@ -16,12 +18,15 @@ use tiny_http::Response;
 use tiny_http::Server as HTTPServer;
 use url::Url;
 
+
+
 pub struct Server {
     handle: HTTPServer,
     miner: MinerHandle,
     network: NetworkServerHandle,
     blockchain: Arc<Mutex<Blockchain>>,
     transaction_generator: TransactionGenerator, // Add transaction generator
+    //state_map: Arc<Mutex<HashMap<H256, Arc<Mutex<State>>>>>,
 }
 
 #[derive(Serialize)]
@@ -58,6 +63,7 @@ impl Server {
         network: &NetworkServerHandle,
         blockchain: &Arc<Mutex<Blockchain>>,
         transaction_generator: &TransactionGenerator, // Pass transaction generator here 
+        //state_map: &Arc<Mutex<HashMap<H256, Arc<Mutex<State>>>>>,
     ) {
         let handle = HTTPServer::http(&addr).unwrap();
         let server = Self {
@@ -66,6 +72,8 @@ impl Server {
             network: network.clone(),
             blockchain: Arc::clone(blockchain),
             transaction_generator: transaction_generator.clone(), // Clone transaction generator 
+            //state_map: Arc::clone(state_map),
+            //state_map: blockchain.lock().unwrap().get_states(),
         };
         thread::spawn(move || {
             for req in server.handle.incoming_requests() {
@@ -73,6 +81,7 @@ impl Server {
                 let network = server.network.clone();
                 let blockchain = Arc::clone(&server.blockchain);
                 let transaction_generator = server.transaction_generator.clone();
+                //let state_map = Arc::clone(&server.state_map);
                 thread::spawn(move || {
                     // a valid url requires a base
                     let base_url = Url::parse(&format!("http://{}/", &addr)).unwrap();
@@ -145,6 +154,7 @@ impl Server {
                             let v = blockchain.all_blocks_in_longest_chain();
                             let v_string: Vec<String> = v.into_iter().map(|h|h.to_string()).collect();
                             respond_json!(req, v_string);
+                            drop(blockchain);
                         }
                         "/blockchain/longest-chain-tx" => {
                             // unimplemented!()
@@ -166,11 +176,73 @@ impl Server {
                                 }
                             }
                             respond_json!(req, tx_chain);
+                            drop(blockchain);
                             //respond_result!(req, false, "unimplemented!");
                         }
                         "/blockchain/longest-chain-tx-count" => {
                             // unimplemented!()
                             respond_result!(req, false, "unimplemented!");
+                        }
+                        "/blockchain/state" => {
+                            let params = url.query_pairs();
+                            let params: HashMap<_, _> = params.into_owned().collect();
+                            let block_param = match params.get("block") {
+                                Some(v) => v,
+                                None => {
+                                    respond_result!(req, false, "missing block parameter");
+                                    return;
+                                }
+                            };
+                            
+                            let block_index = match block_param.parse::<usize>() {
+                                Ok(index) => index,
+                                Err(e) => {
+                                    respond_result!(
+                                        req,
+                                        false,
+                                        format!("Invalid block index: {}", e)
+                                    );
+                                    return;
+                                }
+
+                            };
+
+
+                            let blockchain = blockchain.lock().unwrap();
+                            let longest_chain = blockchain.all_blocks_in_longest_chain();
+
+                            if block_index >= longest_chain.len() {
+                                respond_result!(
+                                    req,
+                                    false,
+                                    format!("block index {} exceeds the longest chain length", block_index)
+                                );
+                                return;
+                            }
+
+                            let block_hash = longest_chain[block_index];
+
+                            let state_map = blockchain.states.clone();
+                            //drop(blockchain);
+
+                            if let Some(state) = state_map.get(&block_hash) {
+                                let state = state.lock().unwrap();
+                                let state_representation: Vec<String> = state
+                                    .get_state_snapshot()
+                                    .into_iter()
+                                    .map(|(address, (nonce, balance))| format!("({}, {}, {})", address, nonce, balance))
+                                    .collect();
+                                respond_json!(req, state_representation);
+                                drop(state);
+                            } else {
+                                respond_result!(
+                                    req,
+                                    false,
+                                    format!("State not found for block: {}", block_hash)
+                                );
+                            }
+                            //drop(state_map);
+                            drop(blockchain);
                         }
                         _ => {
                             let content_type =

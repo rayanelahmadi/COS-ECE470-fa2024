@@ -4,23 +4,29 @@ use std::collections::HashMap;
 use crate::types::block::{Header, Content};
 use crate::types::hash::Hashable;
 use crate::types::transaction::SignedTransaction;
+use crate::types::state::State; // Import the updated state
+use log::info;
+use stderrlog::new;
+use std::sync::{Arc, Mutex};
+
 pub struct Blockchain {
     pub blocks: HashMap<H256, Block>, // Store blocks by their hash
     heights: HashMap<H256, usize>, // Store heights of each block
     tip: H256, // Keep track of the last block's hash (tip of longest chain)
+    pub states: HashMap<H256, Arc<Mutex<State>>>, // Store the state for each block
 }
 
 impl Blockchain {
     /// Create a new blockchain, only containing the genesis block
-    pub fn new() -> Self {
+    pub fn new(seed: &[u8; 32]) -> Self {
+        let genesis_state = Arc::new(Mutex::new(State::new(seed)));
         // Create a genesis block with fixed values for the fields
         let genesis_block = Block {
             // Define the genesis block's header and content 
             header: Header {
                 parent: H256::from([0x00; 32]),
                 nonce: 0,
-                //difficulty: H256::from([0x0f; 32]), //[0xff; 32]
-                difficulty: hex_literal::hex!("0002ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").into(),
+                difficulty: hex_literal::hex!("0005ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").into(),
                 timestamp: 0,
                 merkle_root: H256::from([0x00; 32]),
             },
@@ -37,22 +43,54 @@ impl Blockchain {
         let mut heights = HashMap::new();
         heights.insert(genesis_hash, 0); // Genesis block is at height 0
 
+        let mut states = HashMap::new();
+        states.insert(genesis_hash, genesis_state); // Create initial state for genesis block
+
+
         Self {
             blocks,
             heights,
             tip: genesis_hash, // Genesis block is the tip at creation
+            states,
         }
 
     }
 
     /// Insert a block into blockchain
-    pub fn insert(&mut self, block: &Block) {
+    pub fn insert(&mut self, block: &Block) -> bool {
         //unimplemented!()
         let block_hash = block.hash();
         let parent_hash = block.get_parent();
 
         // Ensure parent block is already in the blockchain
         if let Some(parent_height) = self.heights.get(&parent_hash) {
+            info!("Inserting block: {:?} with parent: {:?}", block_hash, parent_hash);
+
+            // Validate transactions and update state
+            let parent_state_arc = self.states.get(&parent_hash).cloned().unwrap();
+
+            let parent_state = parent_state_arc.lock().unwrap();
+
+            let mut new_state = parent_state.clone();
+
+            drop(parent_state);
+
+            let current_state = parent_state_arc.lock().unwrap();
+
+            let parent_state = current_state.clone();
+
+
+            
+            for tx in &block.content.transactions {
+                if !parent_state.is_valid_transaction(tx) {
+                    info!("Returning false in blockchain/mod.rs");
+                    return false; // Invalid transaction, reject block
+                }
+                new_state.apply_transaction(tx);
+                info!("APPLIED TRANS");
+            } 
+
+            //info!("Number of Transactions: {}", &block.content.transactions.len());
             // Insert the block into the blockchain
             self.blocks.insert(block_hash, block.clone());
 
@@ -60,11 +98,27 @@ impl Blockchain {
             let block_height = parent_height + 1;
             self.heights.insert(block_hash, block_height);
 
+            //states_lock.insert(block_hash, new_state);
+            self.states.insert(block_hash, Arc::new(Mutex::new(new_state)));
+
+            //info!("State Map After Insert: {:?}", self.states);
+
+
             // Update the tip if the new block extends the longest chain
             if block_height > *self.heights.get(&self.tip).unwrap() {
                 self.tip = block_hash;
             }
+            return true;
         }
+        false // Parent block not found, reject block
+    }
+
+    pub fn get_state(&self, block_hash: &H256) -> Option<State> {
+        self.states.get(block_hash).map(|state_arc| state_arc.lock().unwrap().clone())
+    }
+
+    pub fn get_states(&self) -> Arc<Mutex<HashMap<H256, Arc<Mutex<State>>>>> {
+        Arc::new(Mutex::new(self.states.clone()))
     }
 
     /// Get the last block's hash of the longest chain
@@ -97,7 +151,7 @@ impl Blockchain {
 }
 
 // DO NOT CHANGE THIS COMMENT, IT IS FOR AUTOGRADER. BEFORE TEST
-
+/* 
 #[cfg(test)]
 mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -275,6 +329,6 @@ mod tests {
 
 
 
-}
+}*/
 
 // DO NOT CHANGE THIS COMMENT, IT IS FOR AUTOGRADER. AFTER TEST

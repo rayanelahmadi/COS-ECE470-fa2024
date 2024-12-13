@@ -17,6 +17,7 @@ use crate::types::merkle::MerkleTree;
 use std::sync::{Arc, Mutex};
 use crate::types::transaction::Mempool;
 use crate::types::transaction::SignedTransaction;
+use crate::types::state;
 
 enum ControlSignal {
     Start(u64), // the number controls the lambda of interval between block generation
@@ -154,40 +155,10 @@ impl Context {
 
             if let OperatingState::Run(lambda) = self.operating_state {
                 // Create a block with transactions from the mempool
-                //let block = self.create_block();
-                // Retrieve the latest parent block's hash (tip)
-                /* 
-                let parent_hash = {
-                    let blockchain = self.blockchain.lock().unwrap();
-                    blockchain.tip()
-                };
-
-                // Mining: trying random nonces until a solution is found 
-                let mut nonce = rand::thread_rng().gen::<u32>();
-                let timestamp = time::SystemTime::now()
-                    .duration_since(time::UNIX_EPOCH)
-                    .expect("Time went backwards")
-                    .as_millis();
-
-                //let difficulty = H256::from([0x0f; 32]);
-                let difficulty = hex_literal::hex!("00001fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").into();
-
-                let block = Block {
-                    header: Header {
-                        parent: parent_hash,
-                        nonce,
-                        difficulty, // Use static difficulty from genesis block
-                        timestamp,
-                        merkle_root: H256::from([0u8; 32]), // Placeholder for real content
-                    },
-                    content: Content { transactions: vec![] }, // Placeholder content
-                };
-                */
-
-                //let block = self.create_block();
                 if let Some(block) = self.create_block() {
 
                     // Proof-of-Work check
+                    //info!("ARRIVING");
                     if block.hash() <= block.header.difficulty {
                         // Send mined block to channel 
                         self.finished_block_chan
@@ -197,22 +168,27 @@ impl Context {
 
                         // Insert block into blockchain and update tip & Update the parent hash to the newly mined block                    
                         {
-                            let mut blockchain = self.blockchain.lock().unwrap();
-                            blockchain.insert(&block);
+                            //let mut blockchain = self.blockchain.lock().unwrap(); //- UNCOMMENT MAYBE
+                            //blockchain.insert(&block); //- UNCOMMENT MAYBE
+                            //info!("IN MINER")
                         }
 
                         // Remove the transactions in this block from the mempool
+                        /* 
                         {
                             let mut mempool = self.mempool.lock().unwrap();
                             let tx_hashes: Vec<H256> = block.content.transactions.iter().map(|tx| tx.hash()).collect();
                             mempool.remove_transactions(tx_hashes);
                             drop(mempool);
-                        }
-                        
-
-                        //let tx_hashes: Vec<H256> = block.content.transactions.iter().map(|tx| tx.hash()).collect();
-                        //self.mempool.lock().unwrap().remove_transactions(tx_hashes);
+                            for tx in block.content.transactions {
+                                info!("Noce Removed: {}", tx.transaction.nonce);
+                            }
+                        }*/
                     }
+                    
+                }
+                else {
+                    //info!("IN ELSE STATEMENT");
                 }
 
                 if lambda != 0 {
@@ -220,17 +196,8 @@ impl Context {
                     thread::sleep(interval);
                 }
 
-
             }
             
-
-            /* 
-            if let OperatingState::Run(i) = self.operating_state {
-                if i != 0 {
-                    let interval = time::Duration::from_micros(i as u64);
-                    thread::sleep(interval);
-                }
-            }*/
         }
     }
 
@@ -241,8 +208,15 @@ impl Context {
             blockchain.tip()
         };
 
-        //let difficulty = hex_literal::hex!("00001fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").into();
-        let difficulty = hex_literal::hex!("0002ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").into();
+        let blockchain = self.blockchain.lock().unwrap();
+
+        let state = blockchain.get_state(&parent_hash).unwrap();
+
+        drop(blockchain);
+
+        
+        //let difficulty = hex_literal::hex!("00001fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").into(); doing 2 before for one below
+        let difficulty = hex_literal::hex!("0005ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").into();
         let mut nonce = rand::thread_rng().gen::<u32>();
         let timestamp = time::SystemTime::now()
             .duration_since(time::UNIX_EPOCH)
@@ -253,15 +227,34 @@ impl Context {
             .mempool
             .lock()
             .unwrap()
-            .get_transactions_for_block(50); // Assuming 20 as block transaction limit 
+            .get_transactions_for_block(1000); // Assuming 200 as block transaction limit 
+
+        //info!("SIZE OF TRANS: {}", transactions.len());
+        let mut finalized_transactions: Vec<SignedTransaction> = vec![];
+
+        for tx in &transactions {
+            if state.is_valid_transaction(&tx) {
+                finalized_transactions.push(tx.clone());
+            }
+        }
+
+        //info!("SIZE OF TRANS_VALID: {}", finalized_transactions.len());
 
          // Check if there are transactions; return None if empty
-         if transactions.is_empty() {
+        if finalized_transactions.is_empty() {
+            for tx in &transactions {
+                info!("{}", tx.transaction.nonce);
+                //info!("HERE");
+            }
+            info!("ERROR");
+            //info!("Current mempool size: {}", self.mempool.lock().unwrap().len());
+
             return None;
         }
         
+        
         //let merkle_root = H256::from([0u8; 32]); // Placeholder for merkle root
-        let merkle_root = MerkleTree::new(&transactions).root();
+        let merkle_root = MerkleTree::new(&finalized_transactions).root();
 
         Some(Block {
             header: Header {
@@ -271,7 +264,7 @@ impl Context {
                 timestamp,
                 merkle_root,
             },
-            content: Content { transactions },
+            content: Content { transactions: finalized_transactions },
         })
     }
 }
